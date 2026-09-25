@@ -12,18 +12,21 @@ metadata:
 
 ## 执行
 
-1. 一次性检查 `git status --short --branch`、相关 diff 和 untracked 文件，确定本次提交边界：
+1. 一次性检查 `git status --short --branch`、相关 diff、已暂存新增文件和 untracked 文件，确定本次提交边界：
 
    - tracked modifications 必须都属于本次任务；无关改动保留在工作区。
-   - 仅当缺少某个 untracked 文件会导致当前代码、测试或配置逻辑不完整时，逐项展示文件路径与必要性，并要求用户确认。把用户明确同意加入的精确路径记为 `<confirmed_untracked_files>`；没有确认时不得暂存。
-   - 若 `<confirmed_untracked_files>` 非空且仓库存在 `.pre-commit-config.yaml`，先执行 `pre-commit run --files <confirmed_untracked_files>`。按 `fix-with-pre-commit` 处理可修复问题并在相同范围复验；若 hook 明确判定某文件不应进入仓库，则不得添加该文件，并停止同步，避免提交缺少必要文件的不完整改动。
-   - `<confirmed_untracked_files>` 非空且上述检查通过后，才执行 `git add -- <confirmed_untracked_files>`；列表为空时跳过。禁止使用目录、`.` 或 glob 扩大范围。
+   - 对任何需要由 agent 暂存的 untracked 文件，先逐项展示精确路径与必要性，要求用户明确确认并等待回复。笼统的 commit/push 请求、沉默或 agent 自行判断必要性都不算确认；未确认前不得运行会暂存该文件的命令。仅当缺少该文件会使本次改动不完整时才请求加入。
+   - 已经暂存的新增文件也逐项核对是否经用户明确确认纳入本次提交；未确认则停止，不改变现有暂存状态。将全部确认路径记为 `<confirmed_new_files>`。
+   - 若本次确认的 untracked 文件非空且仓库存在 `.pre-commit-config.yaml`，先执行 `pre-commit run --files <确认的 untracked 文件>`。按 `fix-with-pre-commit` 处理可修复问题并在相同范围复验；若 hook 明确判定某文件不应进入仓库，则不得添加该文件，并停止同步，避免提交缺少必要文件的不完整改动。
+   - 检查通过后，才执行 `git add -- <确认的 untracked 文件>`；列表为空时跳过。禁止使用目录、`.` 或 glob 扩大范围。
 
 2. 根据整体 diff 生成简洁的中文提交说明，直接执行：
 
    ```bash
    python3 <skill_dir>/scripts/commit_rebase_push.py --message "<中文提交说明>"
    ```
+
+   对 `<confirmed_new_files>` 中每个路径分别传入一次 `--confirmed-new-file`，使用仓库相对路径和 `/` 分隔符。脚本会在提交前核对已暂存新增文件与确认路径完全一致；不一致时停止，不得为消除报错而自行补传未确认路径。
 
 3. 直接消费脚本输出的 JSON 事件：`skip` 表示无需继续；成功时汇报 `commit.head`、`rebase.changed`、`push.remote/branch` 与忽略的 untracked 文件。无需重复执行已成功的 Git 步骤。若 pre-commit 明确阻止本步骤暂存的某个新文件，将其精确路径记为 `<blocked_file>`，执行 `git restore --staged -- <blocked_file>` 仅撤出该文件并停止，不使用 `--no-verify` 绕过。
 
